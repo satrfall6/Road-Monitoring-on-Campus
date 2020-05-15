@@ -202,7 +202,7 @@ def categorize_orientation(x_new, y_new, x_old, y_old):
             return 2
 
 '''
-#可以用來找最近的點
+# for searhing nearest point 
 def search_grid(point, grids):
     
     grids = list(set(grids))
