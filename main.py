@@ -5,25 +5,21 @@ Created on Fri May  1 13:46:40 2020
 @author: satrf
 """
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.font_manager
-from sklearn import svm
+
 import fnmatch
 
 import cv2 
 print(cv2.getBuildInformation())
-import time
+
 import os 
-os.chdir(r'C:\Users\satrf\LB_stuff\Git\Road-Monitoring-on-Campus')
+#os.chdir(r'C:\Users\satrf\LB_stuff\Git\Road-Monitoring-on-Campus')
 from os.path import join, isdir, isfile
 from pathlib import PureWindowsPath
-from scipy import sqrt, pi, arctan2
 import pandas as pd
 import tqdm
 from sklearn.neighbors import KDTree
-from video_preprocessing import frames_to_avi
-from data_pipeline import make_grid, categorize_flow_points, capture_dense_optical_flow
-from detect_anomaly import visualize_dense_anomalous_gird, visualize_scaled_motion
+from data_pipeline import make_grid, capture_dense_optical_flow
+from detect_anomaly import visualize_dense_anomalous_gird
 
 
 IF_TRAIN = False
@@ -100,7 +96,7 @@ IDX_GRID = 4
 IDX_TIME = 5
 IDX_MAG_CAT = -1
 
-TEST_VIDEOS = 2
+TEST_VIDEOS = -1
 
 #%%
 
@@ -278,7 +274,7 @@ def make_test(path_of_videos, grids, train_std_magnitude, train_mag_med):
     
     return test_spatial
 
-
+#%%
 def main():
 
     if IF_TRAIN:
@@ -293,12 +289,12 @@ def main():
                      metric = 'l2', distance_threshold = 3.6)
         
     else:
-        train_spatial = pd.read_csv(join((r'./data/Train'+UCSD_to_use+'/'), "df_train_dense_spatial"+UCSD_to_use+test_item+".csv"))
-        train_spatial = train_spatial.iloc[:,1:]
+        df_train_spatial = pd.read_csv(join((r'./data/Train'+UCSD_to_use+'/'), "df_train_dense_spatial"+UCSD_to_use+test_item+".csv"))
+        df_train_spatial = df_train_spatial.iloc[:,1:]
 
-        test_spatial = pd.read_csv(join((r'./data/Test'+UCSD_to_use+'/'), "df_test_dense_spatial"+UCSD_to_use+test_item+".csv"))
-        test_spatial = test_spatial.iloc[:,1:]
-        X_train = df_train_spatial.iloc[:,0:-3]
+        df_test_spatial = pd.read_csv(join((r'./data/Test'+UCSD_to_use+'/'), "df_test_dense_spatial"+UCSD_to_use+test_item+".csv"))
+        df_test_spatial = df_test_spatial.iloc[:,1:]
+        X_train = df_train_spatial.iloc[:,0:-1]
         X_test = df_test_spatial.iloc[:,0:-3]
         video_info_test = df_test_spatial.loc[:,'grid': 'video'].astype(int)
         y_pred = kdtree_model(X_train, X_test, num_neighbor = 7, leaf_size = 40, 
