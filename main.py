@@ -12,7 +12,7 @@ import cv2
 print(cv2.getBuildInformation())
 
 import os 
-os.chdir(r'C:\Users\satrf\LB_stuff\Git\Road-Monitoring-on-Campus')
+#os.chdir(r'C:\Users\satrf\LB_stuff\Git\Road-Monitoring-on-Campus')
 from os.path import join, isdir, isfile
 from pathlib import PureWindowsPath
 import pandas as pd
