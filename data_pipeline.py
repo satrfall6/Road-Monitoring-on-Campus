@@ -12,16 +12,18 @@ from os.path import join, isfile
 import matplotlib.pyplot as plt
 import math
 import fnmatch
-    
+from math import sqrt, pi
+
 
 def cal_distance(x2, y2, x1, y1):
 
     return  math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
-#%%
-def capture_dense_optical_flow(path_in, name_of_videos, grids, time_interval = 5,
-                               X_BLOCK_SIZE = 30, Y_BLOCK_SIZE = 30,  
-                               if_show = False,
+# discard too large mag and only caprutre for ROI
+def capture_dense_optical_flow(path_in, name_of_videos, grids, 
+                               ROI, time_interval,
+                               X_BLOCK_SIZE, Y_BLOCK_SIZE,  
+                               if_show = True,
                                if_normal_ori = True):
     '''
     Objective: capture optical flow points from video
@@ -122,17 +124,30 @@ def capture_dense_optical_flow(path_in, name_of_videos, grids, time_interval = 5
         prev_gray = gray.copy()
         
         
+        for roi in ROI:
+            for y in range(grids[1][roi-1], grids[1][roi-1]+Y_BLOCK_SIZE):
+                for x in range(grids[0][roi-1], grids[0][roi-1]+X_BLOCK_SIZE):
+                    if motion_threshold[0] < magnitude[y][x] < 15:
+                        if if_normal_ori:
+                            orientation = categorize_by_bin(mask[..., 0][y][x], 0, 180, 20)
+                        else:
+                            orientation = categorize_to_four(angle[y][x])
+                        flow_points.append([x, y, magnitude[y][x], orientation, 
+                                        roi, set_of_frames])
+        
+        '''
         for y in range(magnitude.shape[0]):
             for x in range(magnitude.shape[1]):
-                if magnitude[y][x] > motion_threshold[0]:
+                if motion_threshold[0] < magnitude[y][x] < 15:
                     if if_normal_ori:
                         orientation = categorize_by_bin(mask[..., 0][y][x], 0, 180, 20)
                     else:
                         orientation = categorize_to_four(angle[y][x])
                     which_grid = categorize_flow_points(x, y, grids, X_BLOCK_SIZE, Y_BLOCK_SIZE)
     
-                    flow_points.append([x, y, np.clip(magnitude[y][x],0,15), orientation, 
+                    flow_points.append([x, y, magnitude[y][x], orientation, 
                                         which_grid, set_of_frames])
+        '''
         
         frame_count += 1
         if (frame_count+1) % time_interval == 0:
@@ -181,8 +196,8 @@ def make_grid(first_frame, X_BLOCK_SIZE, Y_BLOCK_SIZE):
     # for storing x, y, grid index;
     grids = [[],[],[]]
     num_grids = 1
-    for x in range(int((width + X_BLOCK_SIZE)/ X_BLOCK_SIZE)):
-        for y in range(int(height / Y_BLOCK_SIZE)):
+    for x in range(int((width)/ X_BLOCK_SIZE)):
+        for y in range(int((height) / Y_BLOCK_SIZE)):
             grids[0].append(x*X_BLOCK_SIZE) 
             grids[1].append(y*Y_BLOCK_SIZE)
             grids[2].append(num_grids)
@@ -354,7 +369,7 @@ def frames_to_avi_overlap(path_in, path_out, name_of_sub_dir, fps,
         
         video_count+=1
 
-
+#%%
 def video_to_frames(path_in, path_out, name_of_videos, frames_in_video = 400):
     
     '''
@@ -407,3 +422,163 @@ def video_to_frames(path_in, path_out, name_of_videos, frames_in_video = 400):
     # after running through each frame, close this video    
     cap.release()
     return
+
+def capture_sparse_optical_flow(path_in, video, 
+                                mask, cap, grids, 
+                                time_interval,
+                                X_BLOCK_SIZE, Y_BLOCK_SIZE, 
+                                if_show = False):
+    '''
+    Objective: capture optical flow points from video
+    input:
+        path_in: dir of training data, e.g './data/train'
+        name_of_sub_dir: in the training data, there are different days, e.g
+                        '/data/train/train001~train034'. 'train001' is the sub diretory
+        grids: the corner for each grid created by "make_grid" function
+        if_show: a boolin defines if to show the video with optical flow and grid
+    Output:
+        an n by 4 array [starting x, starting y, magnitude, orientation]
+    
+    '''
+    
+
+    # Parameters for Shi-Tomasi corner detection
+    feature_params = dict(maxCorners = 100, qualityLevel = 0.001, minDistance = 1, blockSize = 3)
+    # Parameters for Lucas-Kanade optical flow
+    lk_params = dict(winSize = (60, 60), maxLevel = 3, criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.05))
+
+
+    cap = cv2.VideoCapture(join(path_in, video + '.avi'))
+    # Variable for color to draw optical flow track
+    color = (0, 255, 255)
+    # ret = a boolean return value from getting the frame, first_frame = the first frame in the entire video sequence
+    ret, frame = cap.read()
+    # Converts frame to grayscale because we only need the luminance channel for detecting edges - less computationally expensive
+    prev_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Finds the strongest corners in the first frame by Shi-Tomasi method - we will track the optical flow for these corners
+    # https://docs.opencv.org/3.0-beta/modules/imgproc/doc/feature_detection.html#goodfeaturestotrack
+    
+
+    prev_pts = cv2.goodFeaturesToTrack(prev_gray, mask = None, **feature_params)
+    # Creates an image filled with zero intensities with the same dimensions as the frame - for later drawing purposes
+    if if_show == True:
+        color_grid = (0, 255,0)
+        grid_mask = np.zeros_like(frame)
+        num_of_grids = grids.shape[1]
+        for g in range(num_of_grids):
+            grid_mask = cv2.line(grid_mask, 
+                             (grids[0][g]+X_BLOCK_SIZE, grids[1][g]),
+                             (grids[0][g], grids[1][g]), color_grid, 1)
+            grid_mask = cv2.line(grid_mask, 
+                             (grids[0][g], grids[1][g]+Y_BLOCK_SIZE),
+                             (grids[0][g], grids[1][g]), color_grid, 1)
+    #for counting which frame is being processing for each video
+    frame_count = 0
+    # 20 frames as a set, so record the which set the flows belong to 
+    set_of_frames = 1
+    flow_points = []
+    
+    old = []
+    new = []
+    
+    while cap.isOpened():
+        
+        # ret = a boolean return value from getting the frame, frame = the current frame being projected in the video
+        # 這個.read()一次就換下一張video 的frame
+        ret, frame = cap.read()
+        if not ret:
+            break
+        # Converts each frame to grayscale - we previously only converted the first frame to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # Calculates sparse optical flow by Lucas-Kanade method
+        # https://docs.opencv.org/3.0-beta/modules/video/doc/motion_analysis_and_object_tracking.html#calcopticalflowpyrlk
+        next_pts, status, error = cv2.calcOpticalFlowPyrLK(prev_gray, gray, prev_pts, None, **lk_params)
+
+           
+        # Selects good feature points for previous position
+        good_old = prev_pts[status == 1]
+    
+        # Selects good feature points for next position
+        good_new = next_pts[status == 1]
+        
+        
+        
+        #設100個點，追蹤每個點2秒；每個有被經過的grid, 都根據這個sparse的結果append1、2秒前的位置
+
+#        old.append(good_old)
+#        new.append(good_new)
+
+    
+        for i, (new, old) in enumerate(zip(good_new, good_old)):
+            # Returns a contiguous flattened array as (x, y) coordinates for new point
+            x_new, y_new = np.float32(np.clip(new.ravel(),0 ,[frame.shape[1], frame.shape[0]]))
+            # Returns a contiguous flattened array as (x, y) coordinates for old point
+            x_old, y_old = np.float32(np.clip(old.ravel(),0 ,[frame.shape[1], frame.shape[0]]))
+            if cal_distance(x_new,y_new,x_old,y_old) > 0.4:
+                # Draws line between new and old position with green color and 2 thickness
+                mask = cv2.line(mask, (x_new, y_new), (x_old, y_old), color, 1)
+                
+                
+             #Draws filled circle (thickness of -1) at new position with green color and radius of 3
+                magnitude = sqrt((x_new-x_old)**2 + (y_new-y_old)**2)
+                theta = np.arctan2((y_new-y_old), (x_new-x_old)) * (180 / pi) % 180
+                orientation = categorize_by_bin(theta, 0, 180, 20)
+
+                which_grid = categorize_flow_points(x_old, y_old, grids, X_BLOCK_SIZE, Y_BLOCK_SIZE)
+
+                flow_points.append([x_old, y_old, magnitude, orientation, which_grid, set_of_frames])
+            
+            
+        frame_count += 1
+        if (frame_count+1) % time_interval == 0:
+            set_of_frames +=1
+
+        # Updates previous frame
+        prev_gray = gray.copy()
+        # Updates previous good feature points
+        prev_pts = good_new.reshape(-1, 1, 2)
+  
+      
+        if if_show:    
+                
+            # Overlays the optical flow tracks on the original frame
+            output = cv2.add(frame, mask)
+            output = cv2.add(output, grid_mask)
+            # Opens a new window and displays the output frame
+            cv2.imshow('NO.'+video, output)
+            # Frames are read by intervals of 10 milliseconds. The programs breaks out of the while loop when the user presses the 'q' key
+            if cv2.waitKey(10) & 0xFF == ord('q'):
+                break
+    # The following frees up resources and closes all windows
+    cap.release()
+    cv2.destroyAllWindows()
+#%%
+    return np.array(flow_points), mask
+ #%%
+def grids_of_interest(path_in, grids, X_BLOCK_SIZE, Y_BLOCK_SIZE, TIME_INTERVAL,
+                                if_show = False):
+    
+    sub_files = [d[0:-4] for d in os.listdir(path_in) if isfile(join(path_in, d))]
+    cap = cv2.VideoCapture(join(path_in, sub_files[0] + '.avi'))
+    ret, frame = cap.read()
+    mask = np.zeros_like(frame)
+    cap.release()
+    for video in sub_files[0:20]:
+        _, mask = capture_sparse_optical_flow(path_in, video, mask, cap, grids, 
+                                              X_BLOCK_SIZE, Y_BLOCK_SIZE, TIME_INTERVAL, 
+                                              if_show = if_show)
+    
+    gray_mask = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+    gray_mask =( gray_mask !=0 )*1
+    roi_grids_idx = []
+    for i in range(grids.shape[1]):
+        x, y = grids[:,i][0], grids[:,i][1]
+        roi_grids_idx.append(sum(sum(gray_mask[y : y+Y_BLOCK_SIZE, x:x+X_BLOCK_SIZE])))
+    
+    roi_grids_idx = (np.array(roi_grids_idx) >255)
+
+    
+
+    
+    return mask, grids[2][roi_grids_idx]
